@@ -120,7 +120,8 @@ airflow-publish-demo: install airflow-install
 		$(AIRFLOW_ENV) .venv-airflow/bin/airflow dags test cineinfer_retrain
 
 airflow-ui: airflow-install
-	$(AIRFLOW_ENV) .venv-airflow/bin/airflow standalone
+	@echo "Airflow UI on http://localhost:8080 - user admin, password in airflow_home/standalone_admin_password.txt"
+	PATH=$(CURDIR)/.venv-airflow/bin:$$PATH $(AIRFLOW_ENV) .venv-airflow/bin/airflow standalone  # it spawns `airflow ...` by name
 
 benchmark: install
 	$(PY) -u -m scripts.benchmark

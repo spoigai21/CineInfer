@@ -181,10 +181,13 @@ make baselines      # Phase 3: tune the baselines on validation (~1.5 h, mostly 
 make two-tower      # Phase 5: tune the retriever (~3 h on an Apple GPU)
 make ranker         # Phase 6: two-stage system on validation (~45 min)
 make final-test     # Phase 6b: refit everything, score test once (~1.5 h)
-make export serve   # Phase 7: build the serving bundle, run the API on :8000
-make airflow-install airflow-reject-demo   # Phase 8
+make export serve   # Phase 7: build the serving bundle, run the API + demo page on :8000
+make airflow-install airflow-reject-demo   # Phase 8: a worse model is refused
+make airflow-publish-demo   # Phase 8: the publish path, end to end, in a sandbox registry
+make airflow-ui     # Airflow UI on :8080 (user admin; password in airflow_home/standalone_admin_password.txt)
 make benchmark      # Phase 9 (plug in, idle machine)
 make split-comparison test-analysis readme  # Phase 10
+make pit-experiment # follow-up: point-in-time ranker features (validation only)
 make test           # the test suite, on a synthetic fixture (also in CI)
 ```
 

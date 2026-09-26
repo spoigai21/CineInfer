@@ -875,6 +875,11 @@ features, and a test guards the headline and sealed ablation sets. No run used t
   measured 0.13965. The DAG trained the tuned config (0.15262) → **PUBLISH** in 20 min: refit on
   train + val, ranker rebuilt, bundle exported and smoke-tested, `serving` swapped. The API served
   the new bundle, and the production registry and bundle were byte-identical before and after.
+- **UI:** `make airflow-ui` (`airflow standalone`, `localhost:8080`, user `admin`, password in
+  `airflow_home/standalone_admin_password.txt`) shows both runs: the rejection (`publish`
+  skipped) and the sandbox publish (`reject` skipped). A pre-recording check found it had never
+  started: standalone spawns `airflow webserver` etc. by name, and `.venv-airflow/bin` wasn't on
+  the PATH (`dags test` never spawns them, so the demos had worked). The target now sets it.
 - **Tests** (`tests/test_pipeline.py`): worse, equal *and* within-noise candidates are rejected and logged,
   publish refuses without the decision, a better candidate swaps the symlink and registry, and
   the DAG's structure is checked in the Airflow environment. All use temporary paths.
