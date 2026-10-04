@@ -107,7 +107,19 @@ def build_values():
     v["gaps.chain"] = (" > ".join(NAMES[m].strip("*") for m in chain) + ": every step is statistically clear"
                        if not unclear else "not every step is clear (" + ", ".join(unclear) + ")")
 
+    h = load("test_hits.csv").set_index("model")
+    for m, r in h.iterrows():
+        v[f"hits.{m}.share"] = pct(r.share_users_with_hit, 0)
+        v[f"hits.{m}.avg"] = f"{r.hits_per_user:.1f}"
+        v[f"hits.{m}.per100"] = f"{100 * r.share_users_with_hit:.0f}"
+    v["hits.median_relevant"] = f"{h.median_relevant.median():.0f}"
+    v["hits.ratio.two_stage.ease"] = f"{h.loc['two_stage', 'hits_per_user'] / h.loc['ease', 'hits_per_user']:.1f}"
+    v["hits.ratio.two_stage.most_popular"] = f"{h.loc['two_stage', 'hits_per_user'] / h.loc['most_popular', 'hits_per_user']:.1f}"
+    v["test.ratio.two_stage.most_popular"] = f"{med.loc['two_stage', 'ndcg@10'] / med.loc['most_popular', 'ndcg@10']:.1f}"
+
     st = load("predictions_status.csv").set_index("id")
+    for i, r in st.iterrows():
+        v[f"pred.{i}.verdict"] = {"confirmed": "✅ right", "refuted": "❌ wrong"}.get(r.verdict, r.verdict)
     v["predictions.confirmed"] = str(int((st.verdict == "confirmed").sum()))
     v["predictions.refuted"] = str(int((st.verdict == "refuted").sum()))
     v["predictions.total"] = str(len(st))
@@ -234,6 +246,15 @@ def build_tables():
     med = g[["ndcg@10", "recall@10", "auc", "coverage"]].median()
     seeds = g.seed.nunique()
     order = ["two_stage", "two_tower", "ease", "ease_recent", "implicit_als", "item_knn", "most_popular"]
+    hits = load("test_hits.csv").set_index("model")
+    plain = {"two_stage": "**CineInfer (the final system)**", "two_tower": "Neural network only (no ranker)",
+             "ease": "EASE (best traditional method)", "implicit_als": "ALS (traditional)",
+             "item_knn": "\"People who liked X also liked Y\"", "most_popular": "Just recommend popular movies"}
+    tb["plain_results"] = md(["Method", "Out of 100 users, how many got at least one movie they loved",
+                              "Loved movies per 10 recommendations"],
+                             [[plain[m], f"{100 * hits.loc[m, 'share_users_with_hit']:.0f}",
+                               f"{hits.loc[m, 'hits_per_user']:.1f}"]
+                              for m in ["two_stage", "two_tower", "ease", "implicit_als", "item_knn", "most_popular"]])
     tb["headline"] = md(["Model", "NDCG@10", "Recall@10 (capped)", "AUC", "Coverage", "Runs"],
                         [[NAMES[m], f4(med.loc[m, "ndcg@10"]), f4(med.loc[m, "recall@10"]),
                           f3(med.loc[m, "auc"]), pct(med.loc[m, "coverage"]),

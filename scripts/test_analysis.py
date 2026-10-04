@@ -3,6 +3,8 @@ written to committed CSVs so the README (and its --check in CI) never needs the 
 
   results/test_gaps.csv                  paired bootstrap 95% CIs for the key gaps between models
                                          (per-user metrics averaged over each model's seeds first)
+  results/test_hits.csv                  plain-language numbers: share of users with >= 1 hit in their
+                                         top 10, hits per user (median over seeds)
   results/analysis/test_by_boundary.csv  test NDCG@10 / Recall@10 by where each user's train+val /
                                          test boundary falls (same second / within 1 h / over 1 h)
 Reads only sealed test results; scores nothing. Usage: `make test-analysis`.
@@ -17,6 +19,7 @@ from src import evaluate as ev
 
 RUNS = Path("data/eval_runs")
 GAPS = Path("results/test_gaps.csv")
+HITS = Path("results/test_hits.csv")
 BOUNDARY = Path("results/analysis/test_by_boundary.csv")
 MODELS = ["most_popular", "item_knn", "implicit_als", "ease", "ease_recent", "two_tower",
           "two_stage_no_ease", "two_stage", "two_stage_with_time"]
@@ -36,7 +39,23 @@ def per_user(model):
     return out
 
 
+def plain_hits():
+    """Plain-language test numbers: per seed, the share of users with at least one hit in their
+    top 10 and the average hits per user; median over seeds (as for every other metric)."""
+    rows = []
+    for m in MODELS:
+        files = sorted(RUNS.glob(f"{m}_user_test_seed*.parquet"))
+        per_seed = [pd.read_parquet(f) for f in files]
+        rows.append({"model": m, "seeds": len(files),
+                     "share_users_with_hit": float(np.median([(d.hits > 0).mean() for d in per_seed])),
+                     "hits_per_user": float(np.median([d.hits.mean() for d in per_seed])),
+                     "precision@10": float(np.median([(d.hits / 10).mean() for d in per_seed])),
+                     "median_relevant": float(np.median([d.n_relevant.median() for d in per_seed]))})
+    pd.DataFrame(rows).to_csv(HITS, index=False, float_format="%.6f")
+
+
 def main():
+    plain_hits()
     pu = {m: per_user(m) for m in MODELS}
     rows = []
     for a, b in PAIRS:

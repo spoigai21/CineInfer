@@ -3,21 +3,165 @@
      if this file and the results disagree. -->
 # CineInfer
 
-A movie recommender trained on 25,000,095 MovieLens ratings: given a user, it returns the 10
-movies they're most likely to rate 4 stars or higher. It's built as a two-stage system (a PyTorch
-two-tower retriever picks 200 candidates from 62,423 movies; a LightGBM ranker re-orders
-them) and served by a FastAPI endpoint.
+**A movie recommender: tell it who you are, and it suggests 10 movies you're likely to love.**
 
-The point of the project is honest measurement. Every model is compared with four baselines
-tuned as hard as the neural models, the test slice was scored exactly once, and
-[seven predictions](#predictions-committed-before-training) were committed and pushed
-([`predictions` tag](https://github.com/spoigai21/cine-infer/tree/predictions)) before any neural model was trained. Five of them
-turned out wrong. **Every result in this README is generated from `results/*.csv`**
-(`make readme`), and CI fails if they drift apart (`make readme-check`).
+It learned from 25,000,095 real movie ratings (the public MovieLens dataset: 162,541
+people rating 62,423 movies) and picks its suggestions from all 62,423 movies.
 
-> Demo video: *coming in Phase 11.*
+> Demo video: *coming soon.*
 
-## Results (test slice, scored once)
+This README is written for anyone, no machine-learning background needed. The technical details
+are in the [appendix](#appendix-technical-details) at the end. Every number in this README is
+filled in automatically from the project's result files, so none of them were typed by hand.
+
+---
+
+## How well does it work?
+
+To test it fairly, each person's **most recent** ratings were hidden from the system while it was
+built. At the end, it made 10 suggestions for each of 153,995 people, and we checked how
+many matched movies they **actually went on to love** (rated 4 or 5 stars). This final test was
+run **once**, so it couldn't be tuned to look good.
+
+| Method | Out of 100 users, how many got at least one movie they loved | Loved movies per 10 recommendations |
+|---|---|---|
+| **CineInfer (the final system)** | 54 | 1.0 |
+| Neural network only (no ranker) | 47 | 0.8 |
+| EASE (best traditional method) | 45 | 0.7 |
+| ALS (traditional) | 43 | 0.7 |
+| "People who liked X also liked Y" | 36 | 0.6 |
+| Just recommend popular movies | 22 | 0.3 |
+
+**In plain words:**
+- Out of every 100 people, about **54** found at least one movie they'd go
+  on to love in their top 10.
+- That's **3.0× more good suggestions** than just recommending
+  popular movies, and **1.3× more** than the best traditional method.
+- "About 1 good movie in 10" may sound low, but the test is strict: the typical person loved only
+  about **4** movies in their hidden period, out of 62,423. Guessing
+  at random would find almost none. And a "miss" isn't necessarily a bad suggestion: it only means
+  they didn't happen to rate that movie in the test period.
+
+---
+
+## How it works, in plain words
+
+**1. Learn from the past, test on the future.** Each person's ratings are sorted by date. The
+older ones are used for learning, and the newest ones are hidden and only used for the final
+test, the way a teacher keeps exam questions secret. Automated checks make sure no "future"
+ratings ever leak into the learning part.
+
+**2. Start with simple methods as a benchmark.** Before anything complex, several traditional
+methods were built, from "recommend whatever is popular" to "people who liked X also liked Y".
+The complex system only counts if it beats the best of these.
+
+**3. A neural network quickly finds 200 candidates.** It places every movie on a kind of "map"
+where movies liked by the same people sit close together. It then places you on that map based on
+your 10 most recently liked movies, and grabs the 200 movies closest to you, out of
+62,423, in about a millisecond.
+
+**4. A second model carefully picks the final 10.** It looks more closely at those 200, using extra
+information: how popular and well-rated each movie is, whether its genres match your taste, and
+a second opinion from the best traditional method. It re-orders them and keeps the top 10. This
+"quick search, then careful choice" design is common in large recommendation apps.
+
+**5. A fast web service.** You (or an app) ask for a person's suggestions and get them back in a
+few thousandths of a second. New users with no history get a list of popular movies instead.
+
+---
+
+## What we learned
+
+- **The two-step design pays off.** The careful second step improved results by
+  +21.2% over the neural network alone.
+- **Much of the success comes from people rating in bursts.** MovieLens records when someone
+  *rated* a movie, not when they watched it, and people often rate many movies in one sitting:
+  70.7% of people rated all of their hidden movies within one hour. So the system is
+  often predicting "what will you rate next tonight". It still does better than the traditional
+  methods for people who come back later, but by less.
+- **How you split the data changes the score a lot.** Testing with randomly shuffled ratings
+  instead of by date made the same method score **2.27×** higher, an overly rosy
+  picture. That's why everything here is tested on each person's most recent ratings.
+- **Simpler tools were faster for the data preparation.** Preparing all 25,000,095 ratings
+  took **1.5 seconds** with DuckDB, 15.6 seconds with Spark
+  (a tool built for many computers), and 34.9 seconds with pandas.
+
+---
+
+## Predictions made before building the neural network
+
+Before training any neural network, I wrote down seven predictions and saved
+them publicly on GitHub with a timestamp, so they couldn't be quietly changed afterwards.
+Five turned out wrong, and they're all reported:
+
+| # | Prediction (in plain words) | Result |
+|---|---|---|
+| 1 | The neural network beats "recommend popular movies" by at least 50% | ✅ right |
+| 2 | A well-tuned traditional method nearly matches the neural network | ❌ wrong: the neural network was clearly better |
+| 3 | The careful second step adds only a little | ❌ wrong: it added +21.2% |
+| 4 | "Recommend popular movies" covers the fewest different movies | ✅ right |
+| 5 | pandas is faster than Spark at every data size | ❌ wrong: Spark was faster at the largest size |
+| 6 | Suggestions come back in under 25 ms, even in the slowest 1% of cases | ❌ wrong: the slowest 1% took 28.5 ms |
+| 7 | Testing on shuffled data inflates scores by at least 50%, and three test setups score in a predicted order | ❌ wrong: the inflation was real (2.27×), but the order was wrong |
+
+The exact wording and evidence for each are in the [appendix](#predictions-full-detail).
+
+---
+
+## Try it yourself
+
+You'll need a Mac or Linux computer, Python 3.11 and Java 17 (on a Mac, also run
+`brew install libomp`), plus about 15 GB of free disk space. The movie data is downloaded
+automatically; it isn't stored in this repository, because its license doesn't allow sharing it.
+
+```bash
+make install      # set up everything
+make test         # run the automated checks (no download needed)
+make data         # download the movie ratings (and check they're not corrupted)
+make prep         # prepare the data (~2 minutes)
+```
+
+The models themselves aren't stored in the repository either, so they have to be trained before
+the recommender can run. That takes several hours on a laptop; the full list of commands is in the
+[appendix](#running-everything). Once they're built, `make export serve` starts the recommender,
+and the demo page at `http://localhost:8000` lets you pick any user (or a random or brand-new one)
+and see the movies they recently liked next to the 10 suggestions, with how long each step took.
+
+---
+
+## Limitations
+
+- **Tested on past data only.** The system was never shown to real users, so we don't know how
+  people would actually respond to its suggestions.
+- **Rating isn't watching.** People rate movies in bursts, which makes some predictions easier
+  than they would be in a real app (see "What we learned").
+- **Every MovieLens user has at least 20 ratings,** so the "new user" path is built and tested but
+  never met a genuinely new person. 7,852 movies were rated only in the hidden
+  periods, so the system never saw them and could never suggest them.
+- **Some information about other people's future ratings** is available to the system during
+  learning (for example, how popular a movie *eventually* became). A follow-up experiment showed
+  that removing this doesn't hurt (see the appendix).
+- **It all ran on one laptop,** and the results are specific to movies and MovieLens.
+
+---
+
+## Glossary
+
+| Term | Meaning |
+|---|---|
+| **Recommender** | a system that suggests items (movies, songs, products) a person might like |
+| **Neural network** | a program with millions of adjustable numbers that it tunes by learning from examples |
+| **Traditional methods** (EASE, ALS, item-kNN) | older, well-established recommendation techniques, mostly formula-based |
+| **Ranker** | the second step that re-orders candidates to put the best ones on top (here, LightGBM, a model made of many small decision trees) |
+| **Training / validation / test** | learning data / practice exam used to make decisions / final exam taken once |
+| **NDCG@10** | a 0-to-1 score for a top-10 list: higher when movies the person loved appear, and higher still when they appear near the top |
+| **ms (millisecond)** | one thousandth of a second |
+
+---
+
+## Appendix: technical details
+
+### Results on the test set (scored once)
 
 153,995 users, each ranking against the full catalog with everything they'd already rated
 masked. A movie counts as relevant if the user rated it ≥ 4 in their held-out test period.
@@ -33,24 +177,23 @@ masked. A movie counts as relevant if the user rated it ≥ 4 in their held-out 
 | Most-popular | 0.0513 | 0.0617 | 0.977 | 0.6% | deterministic |
 
 - **The two-stage system beats every baseline**: +38.5% NDCG@10 over
-  the best baseline, EASE (+0.0466, 95% CI [+0.0458, +0.0475],
-  paired bootstrap over users).
+  EASE (+0.0466, 95% CI [+0.0458, +0.0475], paired bootstrap
+  over users), and 3.3× most-popular.
 - **The ranker adds +21.2%** over retrieval alone
   (+0.0294, CI [+0.0288, +0.0299]). It can only
   re-order what retrieval found: 64.6% of relevant test movies are in the
   200 candidates.
 - **The two-tower model beats EASE by +14.3%**
   (+0.0173, CI [+0.0162, +0.0183]) and recommends
-  2.9× as much of the catalog (16.4% vs 5.7% of the
-  55,119 movies with training data).
+  2.9× as much of the catalog (16.4% vs
+  5.7% of the 55,119 movies with training data).
 - Paired bootstrap on NDCG@10, Two-stage (headline) > Two-tower (retrieval) > EASE > Implicit ALS > Item-kNN > Most-popular: every step is statistically clear (`results/test_gaps.csv`).
 
-### Where the gains come from
+### Where the gains come from (session boundary)
 
-MovieLens timestamps are *rating* time, and users rate in bursts: 70.7% of users rated
-their whole test slice within one hour (median span 4 minutes). So under a
-per-user time split, the "future" is usually the rest of the same sitting. Breaking test results
-down by the gap between a user's last training rating and their first test rating:
+70.7% of users rated their whole test slice within one hour (median span
+4 minutes). Test results by the gap between a user's last training rating
+and their first test rating:
 
 | Test NDCG@10 by gap between last train/val rating and first test rating | same second (27,032 users) | within 1 h (119,046 users) | over 1 h (7,917 users) | all (153,995 users) |
 |---|---|---|---|---|
@@ -59,13 +202,12 @@ down by the gap between a user's last training rating and their first test ratin
 | Two-tower (retrieval) | 0.2004 | 0.1271 | 0.0980 | 0.1384 |
 | **Two-stage (headline)** | 0.2283 | 0.1563 | 0.1339 | 0.1678 |
 
-The two-tower model uses only a user's last 10 liked movies, so it's excellent at "what comes next
-in this session" (0.2004 vs EASE's 0.1359) and
-**worse than EASE when the test period starts more than an hour later**
-(0.0980 vs 0.1242). That isn't just a short input
-window: feeding EASE only the last 10 movies (the control row) doesn't reproduce it. The ranker
-sees both scores and learns when to trust each, so the two-stage system beats EASE in every
-bucket, including over 1 h (0.1339).
+The two-tower model uses only a user's last 10 liked movies, so it's strongest within a session
+(0.2004 vs EASE's 0.1359) and **worse than EASE
+when the test period starts more than an hour later** (0.0980 vs
+0.1242). Feeding EASE only the last 10 movies (the control row) doesn't
+reproduce that. The ranker sees both scores, so the two-stage system beats EASE in every bucket,
+including over 1 h (0.1339).
 
 ### Ranker ablations
 
@@ -78,17 +220,15 @@ bucket, including over 1 h (0.1339).
 
 - **EASE's score is the ranker's most valuable feature.** Without it the ranker keeps only
   33% of its gain over retrieval.
-- **Two time features are excluded** even though they help. They compare a user's last rating
-  with the last time *anyone* rated a movie, and under a per-user split "anyone" includes other
-  users' ratings from after this user's cutoff: information a live system wouldn't have.
+- **Two time features are excluded** even though they help: they compare a user's last rating with
+  the last time *anyone* rated a movie, which under a per-user split includes other users' ratings
+  from after this user's cutoff.
 
 ### Removing the cross-user time leak (validation, after the fact)
 
-The headline's item features (a movie's popularity and mean rating) are computed over the whole
-training set, which under a per-user split includes other users' ratings from *after* this user's
-cutoff. A follow-up rebuilt them **point in time**: only ratings made strictly before the user's
-last training rating, by anyone (`make pit-experiment`). The recomputed headline reproduces
-Phase 6 exactly for every seed, so the comparison is like for like:
+A follow-up rebuilt the ranker's item features **point in time**: only ratings made strictly before
+the user's last training rating, by anyone (`make pit-experiment`). The recomputed headline
+reproduces Phase 6 exactly for every seed:
 
 | Ranker features (validation, 3 seeds) | NDCG@10 | vs headline (95% CI) |
 |---|---|---|
@@ -96,16 +236,15 @@ Phase 6 exactly for every seed, so the comparison is like for like:
 | Point-in-time item stats | 0.1822 | +0.0038 [+0.0035, +0.0040] |
 | Point-in-time item stats + point-in-time recency | 0.1829 | +0.0045 [+0.0043, +0.0048] |
 
-The leak wasn't propping the headline up. Popularity as of the user's own moment is *more*
-informative than popularity over the whole training period, and the leak-free recency features
-recover what the excluded time features offered. This was designed after the test results were
-known, so it's reported on validation only: scoring it on test would be a second look.
+The leak wasn't propping the headline up: point-in-time popularity is *more* informative. This was
+designed after the test results were known, so it's reported on validation only.
 
-## Predictions (committed before training)
+### Predictions, full detail
 
-2 of 7 confirmed, 5 refuted.
-Each was written with a "refuted if" condition, committed, tagged and pushed before any neural
-model existed, and is settled by code from the result files, never by hand.
+2 of 7 confirmed, 5 refuted. Each
+had a "refuted if" condition, was committed, tagged
+([`predictions`](https://github.com/spoigai21/cine-infer/tree/predictions)) and pushed before any
+neural model existed, and is settled by code from the result files.
 
 | # | Prediction (committed before training) | Verdict | Evidence |
 |---|---|---|---|
@@ -117,20 +256,16 @@ model existed, and is settled by code from the result files, never by hand.
 | 6 | Serving p99 < 25 ms and p50 < 10 ms for top-10 (two-tower + ranker, 1,000 sequential HTTP requests after 50 warm-up). | ❌ refuted | two-stage client p50 5.23 ms (needs < 10), p99 28.51 ms (needs < 25); 1,000 sequential HTTP requests after 50 warm-up, power AC |
 | 7 | Random split overstates NDCG@10 vs the global cutoff by at least 50%; ordering random > per-user > global (EASE). | ❌ refuted | EASE test NDCG@10: random 0.3359, per-user 0.1211, global 0.1482; random/global = 2.27 (95% CI 2.17-2.37; needs >= 1.5); order random > global > user |
 
-What the refutations say:
-- **#2, #3:** I expected a well-tuned EASE to match the neural model and the ranker to add little.
-  Both gains are real, but the boundary table shows much of the two-tower's comes from predicting
-  the rest of a rating session.
+- **#2, #3:** a well-tuned EASE didn't match the neural model, and the ranker added far more than
+  expected; much of the two-tower's gain comes from predicting the rest of a rating session.
 - **#5:** local-mode Spark's overhead dominates at 1M and 5M rows, but single-threaded pandas scales
   worse, and Spark wins at 25M. DuckDB and Polars beat both at every size.
-- **#6:** the typical request was fast, but the p99 missed the target by 3.5 ms.
-- **#7:** the random split inflates NDCG@10 even more than predicted, but the global cutoff scored
-  *above* the per-user split: its 3,992 test users are the heavy raters still
-  active after January 2018, a different population.
+- **#6:** p50 was fast, but p99 missed by 3.5 ms.
+- **#7:** the random split inflates NDCG@10 more than predicted, but the global cutoff scored
+  *above* the per-user split: its 3,992 test users are heavy raters still active
+  after January 2018, a different population.
 
-## How the split choice changes the numbers
-
-Same model (EASE, same config) and same metric, three ways to split the data:
+### How the split choice changes the numbers
 
 | Split (EASE, same config) | Test users | NDCG@10 (95% CI) | × global |
 |---|---|---|---|
@@ -138,48 +273,39 @@ Same model (EASE, same config) and same metric, three ways to split the data:
 | Per-user time split (the project's) | 153,995 | 0.1211 (0.1202–0.1221) | 0.82 |
 | Global time cutoff | 3,992 | 0.1482 (0.1415–0.1547) | 1.00 |
 
-A random split lets the model train on a user's *later* ratings and test on earlier ones; it
-reports 2.27× (95% CI 2.17–2.37) the global cutoff's NDCG@10. This project
-uses the per-user time split for everything else: no user's own future leaks into their
-training data, and it keeps 153,995 users evaluable (the global cutoff keeps
-3,992).
+A random split reports 2.27× (95% CI 2.17–2.37) the global cutoff's NDCG@10.
+The per-user time split keeps 153,995 users evaluable (the global cutoff keeps
+3,992) with no user's own future in their training data.
 
-## Serving
+### Serving
 
-A demo page at `localhost:8000/` (after `make serve`) shows a user's latest liked movies next to
-their live recommendations and timings. `GET /recommend/{user_id}?k=10` retrieves 200 candidates by brute-force dot product over all
+`GET /recommend/{user_id}?k=10` retrieves 200 candidates by brute-force dot product over all
 62,423 movies, builds 15 features, ranks with LightGBM and returns titles, scores and
-per-stage timings. Unknown users get the most-popular list. The server is NumPy + LightGBM only
-(no PyTorch) and loads the model bundle in 2 s.
+per-stage timings. The server is NumPy + LightGBM only (no PyTorch) and loads in
+2 s.
 
 - **No training/serving skew:** on 2,000 test users, the server's top-10 matches the
   batch pipeline's for 100%.
-- **Latency (1,000 sequential HTTP requests, laptop CPU):** the run that settled prediction #6
-  measured p50 5.2 ms and p99 28.5 ms (target < 25 ms: refuted).
-  Afterwards, and reported separately, single-threaded serving removed contention between the
-  libraries' thread pools: p50 3.2 ms, p99 6.8–19.3 ms
-  (default threading: p99 25–60 ms). The popularity fallback takes
-  0.4 ms.
+- **Latency (1,000 sequential HTTP requests, laptop CPU):** the run that settled
+  prediction #6 measured p50 5.2 ms and p99 28.5 ms. Afterwards,
+  single-threaded serving gave p50 3.2 ms and p99
+  6.8–19.3 ms (default threading: p99 25–60 ms). The
+  popularity fallback takes 0.4 ms.
 
-## Retraining with Airflow
+### Retraining with Airflow
 
-An Airflow DAG runs prep → train → evaluate → **publish only if better** than the live model:
-validation NDCG@10 must beat it by more than 0.003, just above the measured run-to-run
-noise, so a plain retrain can't win by chance. Publishing refits on train + val, rebuilds the
-ranker, exports and smoke-tests a bundle, then swaps the served bundle atomically.
+An Airflow DAG runs prep → train → evaluate → **publish only if better**: validation NDCG@10 must
+beat the live model by more than 0.003 (just above measured run-to-run noise).
+Publishing refits on train + val, rebuilds the ranker, exports and smoke-tests a bundle, then swaps
+it in atomically. A deliberately worse 1-epoch model (0.1396 vs
+0.1538) was rejected; in a sandbox, a better one (0.1526 vs
+0.1396) was published end to end. MovieLens is a fixed dataset, so this pipeline
+retrains on the same data; a live deployment would add a step that pulls new ratings.
 
-- **Refusal (the deliverable):** a deliberately worse 1-epoch model (validation
-  NDCG@10 0.1396 vs live 0.1538) was rejected, and publish was skipped
-  (`results/airflow_reject_demo.txt`).
-- **Publish, end to end on real data:** in a sandbox registry whose live model is that 1-epoch
-  model, a tuned candidate (0.1526 vs 0.1396) was published and
-  served, with the production registry left byte-identical (`results/airflow_publish_demo.txt`).
+### Data-tool benchmark
 
-## pandas vs Spark vs Polars vs DuckDB
-
-The Phase 1 data pipeline (per-user split and features), implemented four ways with identical
-outputs, timed in fresh processes (36 runs, on AC power, load ≤ 3.0).
-Each cell is *with startup / without startup* (warm compute), median of 3:
+The data-preparation pipeline in four tools with identical outputs (36 runs, AC power,
+load ≤ 3.0). Each cell is *with startup / without startup*, median of 3:
 
 | Rows | pandas | Spark (6 cores) | Polars | DuckDB |
 |---|---|---|---|---|
@@ -189,19 +315,10 @@ Each cell is *with startup / without startup* (warm compute), median of 3:
 
 ![benchmark](results/benchmark.png)
 
-## How it was built
+### Tuning
 
-| Phase | What |
-|---|---|
-| 0–1 | Download with checksums; PySpark per-user time split (checked for zero leakage); features from train only |
-| 2 | Evaluation harness: full-catalog ranking, seen-item masking, deterministic ties, bootstrap CIs |
-| 3 | Four baselines tuned on validation (grids extend past edges; every trial logged) |
-| 4 | Predictions committed, tagged and pushed |
-| 5–6 | Two-tower retriever (PyTorch, Apple GPU) and LightGBM ranker, tuned on validation, 3 seeds |
-| 6b | Every model refit on train + val and scored on test **once** (sealed results) |
-| 7–9 | Serving, Airflow retraining gate, engine benchmark |
-
-Tuning, on 151,597 validation users (test was never used for any choice):
+All choices were made on 151,597 validation users; the test set was never used for any
+decision.
 
 | Model | Validation NDCG@10 | Chosen config | Trials | Tuning time |
 |---|---|---|---|---|
@@ -213,10 +330,7 @@ Tuning, on 151,597 validation users (test was never used for any choice):
 | Two-tower (retrieval) | 0.1531 | dim=256, epochs=6, hist_len=10, lr=0.009, pairs_per_user=100, tau=0.05 | 19 | 2.7 h |
 | **Two-stage (headline)** | 0.1784 | learning_rate=0.02, min_data_in_leaf=6, num_leaves=63, rounds=123 | 10 | 4 min |
 
-## Running it
-
-Requirements: macOS or Linux, Python 3.11, **Java 17** for Spark, `brew install libomp` on macOS
-for LightGBM, ~15 GB free disk.
+### Running everything
 
 ```bash
 make install        # .venv with everything
@@ -236,31 +350,12 @@ make pit-experiment # follow-up: point-in-time ranker features (validation only)
 make test           # the test suite, on a synthetic fixture (also in CI)
 ```
 
-Times are rough guides for one laptop. Run one pipeline at a time: several steps use most of the CPU, and timing steps check the load.
+Times are rough guides for one laptop. Run one pipeline at a time.
 
-## Limitations
+### Repository map
 
-- **Offline metrics only.** There's no A/B test, and no real users.
-- **Timestamps are rating time, not watch time**, and most "future" ratings belong to the same
-  sitting as the training data (the boundary table). The headline gains are largest there.
-- **No cold-start users:** every MovieLens user has ≥ 20 ratings. The fallback path is designed
-  and tested, not validated on real traffic. 7,852 movies appear only in val/test and
-  can't be recommended by any model.
-- **Cross-user time leakage under the per-user split:** a 2008 test rating is predicted by models
-  that saw other users' 2015 ratings (the models themselves, and the headline ranker's popularity
-  features). Point-in-time features remove it from the ranker and score higher on validation
-  (above); the headline test numbers still use the original features.
-- **The tag genome was computed by GroupLens in 2019 from all the data**, so ranker features built
-  from it carry some post-cutoff information (only 13,816 movies have one).
-- **Compute caps:** ALS rank and the two-tower embedding size were capped at 256; EASE and
-  item-kNN use only movies with ≥ 20 training positives.
-- **One machine:** latency is one client on a laptop; the Spark benchmark is local mode.
-- **Results are specific to MovieLens.**
-
-## Repository map
-
-`src/` pipeline code (data prep, evaluation harness, models, serving, retraining) · `tests/` pytest
-on a synthetic fixture · `results/` every number above, as CSV · `dags/` Airflow ·
-`cineinfer.md` the plan and predictions · `cineinfer-implementation.md` the build log, phase by
-phase. Data: [MovieLens 25M](https://grouplens.org/datasets/movielens/25m/) (GroupLens; downloaded
-by `make data`, not redistributed).
+`src/` pipeline code · `tests/` pytest on a synthetic fixture · `results/` every number in this
+README, as CSV · `dags/` Airflow · `cineinfer.md` the plan and predictions ·
+`cineinfer-implementation.md` the build log, phase by phase. Data:
+[MovieLens 25M](https://grouplens.org/datasets/movielens/25m/) (GroupLens; downloaded by
+`make data`, not redistributed).
