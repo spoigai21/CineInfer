@@ -7,9 +7,10 @@ people rating {{data.movies}} movies) and picks its suggestions from all {{data.
 
 ### Demo video (7 min)
 
-[![CineInfer demo: click to watch](docs/demo-thumbnail.jpg)](docs/cineinfer-demo.mp4)
+https://github.com/user-attachments/assets/083ecd7b-7d71-4bbb-8c8a-666ae717141a
 
-*Click the image to watch the walkthrough: the live demo page, the results, and how it was built.*
+*The walkthrough: the live demo page, the results, and how it was built. If the player doesn't
+load, the video is also at [`docs/cineinfer-demo.mp4`](docs/cineinfer-demo.mp4).*
 
 This README is written for anyone, no machine-learning background needed. The technical details
 are in the [appendix](#appendix-technical-details) at the end. Every number in this README is
