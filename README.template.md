@@ -5,7 +5,11 @@
 It learned from {{data.ratings}} real movie ratings (the public MovieLens dataset: {{data.users}}
 people rating {{data.movies}} movies) and picks its suggestions from all {{data.movies}} movies.
 
-> Demo video: *coming soon.*
+### Demo video (7 min)
+
+[![CineInfer demo: click to watch](docs/demo-thumbnail.jpg)](docs/cineinfer-demo.mp4)
+
+*Click the image to watch the walkthrough: the live demo page, the results, and how it was built.*
 
 This README is written for anyone, no machine-learning background needed. The technical details
 are in the [appendix](#appendix-technical-details) at the end. Every number in this README is

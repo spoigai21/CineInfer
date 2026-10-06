@@ -8,7 +8,11 @@
 It learned from 25,000,095 real movie ratings (the public MovieLens dataset: 162,541
 people rating 62,423 movies) and picks its suggestions from all 62,423 movies.
 
-> Demo video: *coming soon.*
+### Demo video (7 min)
+
+[![CineInfer demo: click to watch](docs/demo-thumbnail.jpg)](docs/cineinfer-demo.mp4)
+
+*Click the image to watch the walkthrough: the live demo page, the results, and how it was built.*
 
 This README is written for anyone, no machine-learning background needed. The technical details
 are in the [appendix](#appendix-technical-details) at the end. Every number in this README is
